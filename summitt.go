@@ -30,6 +30,7 @@ type flagsSet struct {
 	lower    bool
 	verbose  bool
 	ignore   bool
+	empty    bool
 }
 
 var flags flagsSet
@@ -93,8 +94,16 @@ func main() {
 	// print counters of every box
 	for i, box := range boxes {
 
+		if len(box.counters) == 0 && flags.empty {
+			continue
+		}
+
 		if flags.verbose {
-			fmt.Printf("# #%d\n# =~ %s\n# = %d\n", (i + 1), box.pattern, len(box.counters))
+			fmt.Printf("# #%d\n# =~ %s\n# × %d", (i + 1), box.pattern, len(box.counters))
+			if flags.top > 0 && flags.top < len(box.counters) {
+				fmt.Printf("[:%d]", flags.top)
+			}
+			fmt.Print("\n")
 		}
 
 		// sort by values (convert map=>slice, then sort)
@@ -118,11 +127,17 @@ func main() {
 
 		sort.Slice(counters, _sortby)
 
-		// finally print
-		for i, c := range counters {
-			if flags.top > 0 && (i+1) > flags.top {
-				break
+		// cap counters slice by `top`
+		if flags.top > 0 && flags.top < len(counters) {
+			if flags.reverse {
+				counters = counters[:flags.top]
+			} else {
+				counters = counters[len(counters)-flags.top:]
 			}
+		}
+
+		// finally print
+		for _, c := range counters {
 			fmt.Printf("%15d %9s %5d %.80s\n", c.v1, humanBytes(int64(c.v1)), c.v2, c.k)
 		}
 
@@ -240,6 +255,9 @@ func readFlags() flagsSet {
 
 	flag.BoolVar(&flags.ignore, "i", true, "= --ignore")
 	flag.BoolVar(&flags.ignore, "ignore", true, "ignore errors")
+
+	flag.BoolVar(&flags.empty, "e", true, "= --empty")
+	flag.BoolVar(&flags.empty, "empty", true, "skip empty")
 
 	flag.BoolVar(&flags.lower, "l", false, "= --lower")
 	flag.BoolVar(&flags.lower, "lower", false, "transform all tags to lowercase for CASE-insensitive sums")
