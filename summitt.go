@@ -29,6 +29,7 @@ type flagsSet struct {
 	reverse  bool
 	lower    bool
 	verbose  bool
+	ignore   bool
 }
 
 var flags flagsSet
@@ -48,7 +49,14 @@ func main() {
 
 		boxes[i].pattern = pat
 
-		re, _ := regexp.Compile(pat)
+		re, err := regexp.Compile(pat)
+		if err != nil {
+			fmt.Printf("#! pattern error `%q`: %q\n", pat, err)
+			if !flags.ignore {
+				os.Exit(1)
+			}
+		}
+
 		boxes[i].regexp = re
 
 		boxes[i].counters = make(map[string][2]int64)
@@ -75,8 +83,10 @@ func main() {
 	for _, filename := range flags.files {
 		err = sumFiles(filename, boxes)
 		if err != nil {
-			fmt.Printf("# error at file %s: %q\n", filename, err)
-			os.Exit(1)
+			fmt.Printf("#! error at file %s: %q\n", filename, err)
+			if !flags.ignore {
+				os.Exit(1)
+			}
 		}
 	}
 
@@ -154,8 +164,9 @@ func sumFiles(filename string, boxes []patBox) error {
 }
 
 // sumLines applies every pattern to the line and update counters is there is a match
-func sumLines(line string, boxes []patBox) {
+func sumLines(line string, boxes []patBox) (int, error) {
 
+	c := 0
 	for _, box := range boxes {
 		matches := box.regexp.FindAllStringSubmatch(line, -1)
 		if matches != nil {
@@ -165,16 +176,22 @@ func sumLines(line string, boxes []patBox) {
 					if flags.lower {
 						k = strings.ToLower(k)
 					}
-					v, _ := strconv.Atoi(match[box.vi])
+					v, err := strconv.Atoi(match[box.vi])
+					if err != nil && !flags.ignore {
+						return c, err
+					}
 					v0 := box.counters[k]
 					v0[0] += int64(v) * int64(flags.factor)
 					v0[1]++
 					box.counters[k] = v0
+					c++
 				}
 			}
 		}
 
 	}
+
+	return c, nil
 
 }
 
@@ -206,8 +223,8 @@ func (i *flagsArray) Set(value string) error {
 func readFlags() flagsSet {
 
 	patternsDefault := []string{
-		`^[\-rwxds]{10}\s+[0-9]+\s+[^\s]+\s+[^\s]+\s+(?P<v>[0-9]+)\s+.+(?P<k>\.[a-z0-9]{1,4})$`,
-		`^\s*(?P<v>[0-9]+)\s+.+(?P<k>\.[a-z0-9]{1,4})$`,
+		`^[\-rwxds]{10}\s+[0-9]+\s+[^\s]+\s+[^\s]+\s+(?P<v>[0-9]+)\s+.+(?P<k>\.[A-Za-z0-9]{1,4})$`,
+		`^\s*(?P<v>[0-9]+)\s+.+(?P<k>\.[A-Za-z0-9]{1,4})$`,
 		`^\s*(?P<v>[0-9]+)\s+(?P<k>[^\-#\.]+).*$`,
 	}
 
@@ -221,8 +238,11 @@ func readFlags() flagsSet {
 	flag.BoolVar(&flags.reverse, "r", false, "= --reverse")
 	flag.BoolVar(&flags.reverse, "reverse", false, "reverse sorting")
 
-	flag.BoolVar(&flags.lower, "l", true, "= --lower")
-	flag.BoolVar(&flags.lower, "lower", true, "transform all tags to lowercase for CASE-insenesetive sums")
+	flag.BoolVar(&flags.ignore, "i", true, "= --ignore")
+	flag.BoolVar(&flags.ignore, "ignore", true, "ignore errors")
+
+	flag.BoolVar(&flags.lower, "l", false, "= --lower")
+	flag.BoolVar(&flags.lower, "lower", false, "transform all tags to lowercase for CASE-insensitive sums")
 
 	var k1024 bool
 	flag.BoolVar(&k1024, "k", false, "(1K blocks) = --factor=1024")
