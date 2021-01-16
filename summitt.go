@@ -2,9 +2,10 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
-	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -19,27 +20,31 @@ type patBox struct {
 	counters map[string][2]int64 // map[key] = (total, count)
 }
 
+// command-line options in one structure
+type flagsSet struct {
+	files    []string
+	patterns []string
+	factor   int
+	top      int
+	reverse  bool
+	lower    bool
+	verbose  bool
+}
+
+var flags flagsSet
+
 func main() {
 
 	// go with errors
 	var err error
 
-	// input files
-	// `-` -- stdin
-	files := []string{"-"}
+	flags = readFlags()
 
-	// patterns
-	patterns := []string{
-		"^[\\-rwdx]{10} [0-9]+ [^\\s]+ [^\\s]+ *(?P<v>[0-9]+)\\s+.+(?P<k>\\.[a-z0-9]{1,4})$",
-		"^\\s*(?P<v>[0-9]+)\\s+.+(?P<k>\\.[a-z0-9]{1,4})$",
-		"^\\s*(?P<v>[0-9]+)\\s+(?P<k>[^\\-#\\.]+).*$",
-	}
+	// build boxes for counters
+	boxes := make([]patBox, len(flags.patterns))
 
-	// boxes of counters
-	boxes := make([]patBox, len(patterns))
-
-	// read patters, compile and preapare maps of counters
-	for i, pat := range patterns {
+	// read patterns, compile and prepare maps of counters
+	for i, pat := range flags.patterns {
 
 		boxes[i].pattern = pat
 
@@ -48,7 +53,7 @@ func main() {
 
 		boxes[i].counters = make(map[string][2]int64)
 
-		// get index for named groups in the regexp
+		// get index for the named groups in the regexp
 		// `k` = key, `v` = value (counter), defaults to 2 and 1
 		ki := re.SubexpIndex("k")
 		if ki > 0 {
@@ -67,43 +72,59 @@ func main() {
 	}
 
 	// count every file
-	for _, filename := range files {
+	for _, filename := range flags.files {
 		err = sumFiles(filename, boxes)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Printf("# error at file %s: %q\n", filename, err)
+			os.Exit(1)
 		}
 	}
 
-	// print counters for every box
+	// print counters of every box
 	for i, box := range boxes {
 
-		fmt.Printf("# #%d\n# =~ %s\n# = %d\n", (i + 1), box.pattern, len(box.counters))
+		if flags.verbose {
+			fmt.Printf("# #%d\n# =~ %s\n# = %d\n", (i + 1), box.pattern, len(box.counters))
+		}
 
-		// sort by values
+		// sort by values (convert map=>slice, then sort)
 		type kv struct {
 			k  string
 			v1 int64
 			v2 int64
 		}
-		counters := make([]kv, 0)
 
+		counters := make([]kv, 0)
 		for k, v := range box.counters {
 			counters = append(counters, kv{k, v[0], v[1]})
 		}
 
-		_sortby := func(i, j int) bool { return counters[i].v1 < counters[j].v1 }
-		sort.Slice(counters, _sortby)
-
-		for _, c := range counters {
-			fmt.Printf("%15d %7s %7d %.80s\n", c.v1, humanBytes(int64(c.v1)), c.v2, c.k)
+		var _sortby func(i, j int) bool
+		if flags.reverse {
+			_sortby = func(i, j int) bool { return counters[i].v1 > counters[j].v1 }
+		} else {
+			_sortby = func(i, j int) bool { return counters[i].v1 < counters[j].v1 }
 		}
 
-		fmt.Print("\n")
+		sort.Slice(counters, _sortby)
+
+		// finally print
+		for i, c := range counters {
+			if flags.top > 0 && (i+1) > flags.top {
+				break
+			}
+			fmt.Printf("%15d %9s %5d %.80s\n", c.v1, humanBytes(int64(c.v1)), c.v2, c.k)
+		}
+
+		if flags.verbose {
+			fmt.Print("\n")
+		}
 
 	}
 
 }
 
+// sumFiles opens file and calls sumLines for every line
 func sumFiles(filename string, boxes []patBox) error {
 
 	var err error
@@ -132,6 +153,7 @@ func sumFiles(filename string, boxes []patBox) error {
 
 }
 
+// sumLines applies every pattern to the line and update counters is there is a match
 func sumLines(line string, boxes []patBox) {
 
 	for _, box := range boxes {
@@ -140,10 +162,12 @@ func sumLines(line string, boxes []patBox) {
 			for _, match := range matches {
 				if len(match) >= 3 {
 					k := match[box.ki]
-					k = strings.ToLower(k)
+					if flags.lower {
+						k = strings.ToLower(k)
+					}
 					v, _ := strconv.Atoi(match[box.vi])
 					v0 := box.counters[k]
-					v0[0] += int64(v)
+					v0[0] += int64(v) * int64(flags.factor)
 					v0[1]++
 					box.counters[k] = v0
 				}
@@ -154,10 +178,11 @@ func sumLines(line string, boxes []patBox) {
 
 }
 
+// humanBytes was shamelessly stolen from somewhere
 func humanBytes(b int64) string {
 	const unit = 1024
 	if b < unit {
-		return fmt.Sprintf("%d b", b)
+		return fmt.Sprintf("%db", b)
 	}
 	div, exp := int64(unit), 0
 	for n := b / unit; n >= unit; n /= unit {
@@ -165,4 +190,98 @@ func humanBytes(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f%cB", float64(b)/float64(div), "kMGTPE"[exp])
+}
+
+type flagsArray []string
+
+func (i *flagsArray) String() string {
+	return ""
+}
+
+func (i *flagsArray) Set(value string) error {
+	*i = append(*i, value)
+	return nil
+}
+
+func readFlags() flagsSet {
+
+	patternsDefault := []string{
+		`^[\-rwxds]{10}\s+[0-9]+\s+[^\s]+\s+[^\s]+\s+(?P<v>[0-9]+)\s+.+(?P<k>\.[a-z0-9]{1,4})$`,
+		`^\s*(?P<v>[0-9]+)\s+.+(?P<k>\.[a-z0-9]{1,4})$`,
+		`^\s*(?P<v>[0-9]+)\s+(?P<k>[^\-#\.]+).*$`,
+	}
+
+	filesDefault := []string{"-"}
+
+	var flags = flagsSet{}
+
+	flag.BoolVar(&flags.verbose, "v", true, "= --verbose")
+	flag.BoolVar(&flags.verbose, "verbose", true, "verbose output")
+
+	flag.BoolVar(&flags.reverse, "r", false, "= --reverse")
+	flag.BoolVar(&flags.reverse, "reverse", false, "reverse sorting")
+
+	flag.BoolVar(&flags.lower, "l", true, "= --lower")
+	flag.BoolVar(&flags.lower, "lower", true, "transform all tags to lowercase for CASE-insenesetive sums")
+
+	var k1024 bool
+	flag.BoolVar(&k1024, "k", false, "(1K blocks) = --factor=1024")
+	flag.IntVar(&flags.factor, "factor", 1, "counter factor ×F")
+
+	flag.IntVar(&flags.top, "t", -1, "= --top")
+	flag.IntVar(&flags.top, "top", -1, "N top lines")
+
+	var patterns flagsArray
+	flag.Var(&patterns, "p", "= --pattern")
+	flag.Var(&patterns, "pattern", "parsing pattern")
+
+	var files flagsArray
+	flag.Var(&files, "f", "inputfile (default stdin)")
+
+	usage := func() {
+		exename := filepath.Base(os.Args[0])
+		fmt.Printf("'%s' calculates sums of counters for the tags,\n"+
+			"e.g. total sizes for file groups from 'ls' output. \n\n"+
+			"OUTPUT: [sum] [human readable size] [number of occurrences] [tag] \n\n", exename)
+		fmt.Printf("Usage: %s [OPTIONS] filename ...\n\n", exename)
+		flag.PrintDefaults()
+		if len(patternsDefault) > 0 {
+			fmt.Println("\nDefault patterns (for 'ls -l' and 'ls -S' output):")
+			for i, p := range patternsDefault {
+				fmt.Printf("%d: %s\n", i+1, p)
+			}
+		}
+		fmt.Printf("\nExample:\n > ls -l | %[1]s\n > ls -Rs1 | %[1]s -k\n", exename)
+	}
+
+	flag.Usage = usage
+
+	flag.Parse()
+
+	// also get filenames from non-flags
+	for _, filename := range flag.Args() {
+		files.Set(filename)
+	}
+
+	// list of files -- stdin by default
+	if len(files) > 0 {
+		flags.files = files
+	} else {
+		flags.files = filesDefault
+	}
+
+	// list of patterns
+	if len(patterns) > 0 {
+		flags.patterns = patterns
+	} else {
+		flags.patterns = patternsDefault
+	}
+
+	// 1K blocks shortcut
+	if k1024 {
+		flags.factor = 1024
+	}
+
+	return flags
+
 }
