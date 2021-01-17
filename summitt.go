@@ -26,6 +26,7 @@ type flagsSet struct {
 	patterns []string
 	factor   int
 	top      int
+	sort     int
 	reverse  bool
 	lower    bool
 	verbose  bool
@@ -118,14 +119,22 @@ func main() {
 			counters = append(counters, kv{k, v[0], v[1]})
 		}
 
-		var _sortby func(i, j int) bool
-		if flags.reverse {
-			_sortby = func(i, j int) bool { return counters[i].v1 > counters[j].v1 }
-		} else {
-			_sortby = func(i, j int) bool { return counters[i].v1 < counters[j].v1 }
+		// select sorder for the slice
+		var sortby func(int, int) bool
+
+		if flags.sort == 1 {
+			sortby = func(i, j int) bool { return counters[i].v1 < counters[j].v1 }
+		} else if flags.sort == -1 {
+			sortby = func(i, j int) bool { return counters[i].v1 > counters[j].v1 }
+		} else if flags.sort == 2 {
+			sortby = func(i, j int) bool { return counters[i].v2 < counters[j].v2 }
+		} else if flags.sort == 2 {
+			sortby = func(i, j int) bool { return counters[i].v2 > counters[j].v2 }
 		}
 
-		sort.Slice(counters, _sortby)
+		if sortby != nil {
+			sort.Slice(counters, sortby)
+		}
 
 		// cap counters slice by `top`
 		if flags.top > 0 && flags.top < len(counters) {
@@ -250,6 +259,9 @@ func readFlags() flagsSet {
 	flag.BoolVar(&flags.verbose, "v", true, "= --verbose")
 	flag.BoolVar(&flags.verbose, "verbose", true, "verbose output")
 
+	flag.IntVar(&flags.sort, "s", 1, "= --sort")
+	flag.IntVar(&flags.sort, "sort", 1, "sort by: (1) counters sum; (2) number of occurrences; (0) disable")
+
 	flag.BoolVar(&flags.reverse, "r", false, "= --reverse")
 	flag.BoolVar(&flags.reverse, "reverse", false, "reverse sorting")
 
@@ -257,13 +269,13 @@ func readFlags() flagsSet {
 	flag.BoolVar(&flags.ignore, "ignore", true, "ignore errors")
 
 	flag.BoolVar(&flags.empty, "e", true, "= --empty")
-	flag.BoolVar(&flags.empty, "empty", true, "skip empty")
+	flag.BoolVar(&flags.empty, "empty", true, "skip empty boxes")
 
 	flag.BoolVar(&flags.lower, "l", false, "= --lower")
 	flag.BoolVar(&flags.lower, "lower", false, "transform all tags to lowercase for CASE-insensitive sums")
 
 	var k1024 bool
-	flag.BoolVar(&k1024, "k", false, "(1K blocks) = --factor=1024")
+	flag.BoolVar(&k1024, "k", false, "= --factor=1024 (1K blocks)")
 	flag.IntVar(&flags.factor, "factor", 1, "counter factor ×F")
 
 	flag.IntVar(&flags.top, "t", -1, "= --top")
@@ -278,18 +290,20 @@ func readFlags() flagsSet {
 
 	usage := func() {
 		exename := filepath.Base(os.Args[0])
-		fmt.Printf("'%s' calculates sums of counters for the tags,\n"+
+		fmt.Printf("# '%[1]s' calculates sums of counters for the tags,\n"+
 			"e.g. total sizes for file groups from 'ls' output. \n\n"+
-			"OUTPUT: [sum] [human readable size] [number of occurrences] [tag] \n\n", exename)
-		fmt.Printf("Usage: %s [OPTIONS] filename ...\n\n", exename)
+			"## OUTPUT FORMAT:\n  # debug info\n"+
+			"    [sum] [human readable size] [number of occurrences] [tag]\n    …\n\n", exename)
+		fmt.Printf("## USAGE:\n  $ %s [OPTIONS] [FILENAME]*\n\n", exename)
+		fmt.Printf("## OPTIONS:\n")
 		flag.PrintDefaults()
 		if len(patternsDefault) > 0 {
-			fmt.Println("\nDefault patterns (for 'ls -l' and 'ls -S' output):")
+			fmt.Println("\n### Default patterns (for 'ls -l' and 'ls -S' output):")
 			for i, p := range patternsDefault {
-				fmt.Printf("%d: %s\n", i+1, p)
+				fmt.Printf("  %d: %s\n", i+1, p)
 			}
 		}
-		fmt.Printf("\nExample:\n > ls -l | %[1]s\n > ls -Rs1 | %[1]s -k\n", exename)
+		fmt.Printf("\n### Example:\n  > ls -l | %[1]s\n  > ls -Rs1 | %[1]s -k\n", exename)
 	}
 
 	flag.Usage = usage
@@ -318,6 +332,11 @@ func readFlags() flagsSet {
 	// 1K blocks shortcut
 	if k1024 {
 		flags.factor = 1024
+	}
+
+	// sort by
+	if flags.reverse {
+		flags.sort = -flags.sort
 	}
 
 	return flags
