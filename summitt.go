@@ -193,26 +193,27 @@ func sumLines(line string, boxes []patBox) (int, error) {
 	c := 0
 	for _, box := range boxes {
 		matches := box.regexp.FindAllStringSubmatch(line, -1)
-		if matches != nil {
-			for _, match := range matches {
-				if len(match) >= 3 {
-					k := match[box.ki]
-					if flags.lower {
-						k = strings.ToLower(k)
-					}
-					v, err := strconv.Atoi(match[box.vi])
-					if err != nil && !flags.ignore {
-						return c, err
-					}
-					v0 := box.counters[k]
-					v0[0] += int64(v) * int64(flags.factor)
-					v0[1]++
-					box.counters[k] = v0
-					c++
-				}
-			}
+		if matches == nil {
+			continue
 		}
-
+		for _, match := range matches {
+			if len(match) < 3 {
+				continue
+			}
+			k := match[box.ki]
+			if flags.lower {
+				k = strings.ToLower(k)
+			}
+			v, err := strconv.Atoi(match[box.vi])
+			if err != nil && !flags.ignore {
+				return c, err
+			}
+			v0 := box.counters[k]
+			v0[0] += int64(v) * int64(flags.factor)
+			v0[1]++
+			box.counters[k] = v0
+			c++
+		}
 	}
 
 	return c, nil
