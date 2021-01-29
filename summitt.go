@@ -248,7 +248,12 @@ func (i *flagsArray) Set(value string) error {
 func readFlags() flagsSet {
 
 	patternsDefault := []string{
+		// ls -l
+		// -rw-r--r-- 1 root root     642 Mar  1  2019 passwd
 		`^[\-rwxds]{10}\s+[0-9]+\s+[^\s]+\s+[^\s]+\s+(?P<v>[0-9]+)\s+.+(?P<k>\.[A-Za-z0-9]{1,4})$`,
+		`^[\-rwxds]{10}\s+[0-9]+\s+[^\s]+\s+[^\s]+\s+(?P<v>[0-9]+)\s+[^\s]+\s+[^\s]+\s+[^\s]+\s+(?P<k>[^\-#\.]+).*$`,
+		// ls -s
+		//  4 passwd
 		`^\s*(?P<v>[0-9]+)\s+.+(?P<k>\.[A-Za-z0-9]{1,4})$`,
 		`^\s*(?P<v>[0-9]+)\s+(?P<k>[^\-#\.]+).*$`,
 	}
@@ -261,7 +266,7 @@ func readFlags() flagsSet {
 	flag.BoolVar(&flags.verbose, "verbose", true, "verbose output")
 
 	flag.IntVar(&flags.sort, "s", 1, "= --sort")
-	flag.IntVar(&flags.sort, "sort", 1, "sort by: (1) counters sum; (2) number of occurrences; (0) disable")
+	flag.IntVar(&flags.sort, "sort", 1, "sort by: (1) sum of counters; (2) number of entries; (0) disable")
 
 	flag.BoolVar(&flags.reverse, "r", false, "= --reverse")
 	flag.BoolVar(&flags.reverse, "reverse", false, "reverse sorting")
@@ -292,9 +297,9 @@ func readFlags() flagsSet {
 	usage := func() {
 		exename := filepath.Base(os.Args[0])
 		fmt.Printf("# '%[1]s' calculates sums of counters for the tags,\n"+
-			"e.g. total sizes for file groups from 'ls' output. \n\n"+
+			"e.g. total sizes for file groups from 'ls' output.\n\n"+
 			"## OUTPUT FORMAT:\n  # debug info\n"+
-			"    [sum] [human readable size] [number of occurrences] [tag]\n    …\n\n", exename)
+			"    [sum] [human readable size] [number of entries] [tag]\n    …\n\n", exename)
 		fmt.Printf("## USAGE:\n  $ %s [OPTIONS] [FILENAME]*\n\n", exename)
 		fmt.Printf("## OPTIONS:\n")
 		flag.PrintDefaults()
