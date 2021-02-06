@@ -128,7 +128,7 @@ func main() {
 			sortby = func(i, j int) bool { return counters[i].v1 > counters[j].v1 }
 		} else if flags.sort == 2 {
 			sortby = func(i, j int) bool { return counters[i].v2 < counters[j].v2 }
-		} else if flags.sort == 2 {
+		} else if flags.sort == -2 {
 			sortby = func(i, j int) bool { return counters[i].v2 > counters[j].v2 }
 		}
 
