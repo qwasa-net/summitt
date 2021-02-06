@@ -83,7 +83,7 @@ func main() {
 
 	// count every file
 	for _, filename := range flags.files {
-		err = sumFiles(filename, boxes)
+		err = sumFile(filename, boxes)
 		if err != nil {
 			fmt.Printf("#! error at file %s: %q\n", filename, err)
 			if !flags.ignore {
@@ -110,26 +110,26 @@ func main() {
 		// sort by values (convert map=>slice, then sort)
 		type kv struct {
 			k  string
-			v1 int64
-			v2 int64
+			vs [3]int64 // sum, count, ratio
 		}
 
 		counters := make([]kv, 0)
 		for k, v := range box.counters {
-			counters = append(counters, kv{k, v[0], v[1]})
+			vr := v[0] / v[1]
+			counters = append(counters, kv{k, [3]int64{v[0], v[1], vr}})
 		}
 
 		// select sorder for the slice
 		var sortby func(int, int) bool
 
-		if flags.sort == 1 {
-			sortby = func(i, j int) bool { return counters[i].v1 < counters[j].v1 }
-		} else if flags.sort == -1 {
-			sortby = func(i, j int) bool { return counters[i].v1 > counters[j].v1 }
-		} else if flags.sort == 2 {
-			sortby = func(i, j int) bool { return counters[i].v2 < counters[j].v2 }
-		} else if flags.sort == -2 {
-			sortby = func(i, j int) bool { return counters[i].v2 > counters[j].v2 }
+		// valid options set = {1,2,3}
+		sortMap := map[int]int{1: 0, 2: 1, 3: 2}
+		if sortI, validSortI := sortMap[flags.sort]; validSortI {
+			if flags.reverse {
+				sortby = func(i, j int) bool { return counters[i].vs[sortI] > counters[j].vs[sortI] }
+			} else {
+				sortby = func(i, j int) bool { return counters[i].vs[sortI] < counters[j].vs[sortI] }
+			}
 		}
 
 		if sortby != nil {
@@ -147,7 +147,7 @@ func main() {
 
 		// finally print
 		for _, c := range counters {
-			fmt.Printf("%15d %9s %5d %.80s\n", c.v1, humanBytes(int64(c.v1)), c.v2, c.k)
+			fmt.Printf("%15d %9s %5d %.80s\n", c.vs[0], humanBytes(int64(c.vs[0])), c.vs[1], c.k)
 		}
 
 		if flags.verbose {
@@ -158,8 +158,8 @@ func main() {
 
 }
 
-// sumFiles opens file and calls sumLines for every line
-func sumFiles(filename string, boxes []patBox) error {
+// sumFile opens file and calls sumLine for every line
+func sumFile(filename string, boxes []patBox) error {
 
 	var err error
 
@@ -180,15 +180,15 @@ func sumFiles(filename string, boxes []patBox) error {
 	// count lines
 	for scanner.Scan() {
 		line := scanner.Text()
-		sumLines(line, boxes)
+		sumLine(line, boxes)
 	}
 
 	return err
 
 }
 
-// sumLines applies every pattern to the line and update counters is there is a match
-func sumLines(line string, boxes []patBox) (int, error) {
+// sumLine applies every pattern to the line and update counters is there is a match
+func sumLine(line string, boxes []patBox) (int, error) {
 
 	c := 0
 	for _, box := range boxes {
@@ -341,8 +341,13 @@ func readFlags() flagsSet {
 	}
 
 	// sort by
-	if flags.reverse {
+	if flags.sort < 0 {
 		flags.sort = -flags.sort
+		flags.reverse = !flags.reverse
+	}
+
+	if flags.sort < 1 || flags.sort > 3 {
+		flags.sort = 0
 	}
 
 	return flags
