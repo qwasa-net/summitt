@@ -17,7 +17,7 @@ type patBox struct {
 	pattern  string              // initial re pattern (value key)
 	ki       int                 // key index in the regexp
 	vi       int                 // value index in the regexp
-	counters map[string][2]int64 // map[key] = (total, count)
+	counters map[string][3]int64 // map[key] = (total, count, max)
 }
 
 // command-line options in one structure
@@ -61,7 +61,7 @@ func main() {
 
 		boxes[i].regexp = re
 
-		boxes[i].counters = make(map[string][2]int64)
+		boxes[i].counters = make(map[string][3]int64)
 
 		// get index for the named groups in the regexp
 		// `k` = key, `v` = value (counter), defaults to 2 and 1
@@ -110,20 +110,20 @@ func main() {
 		// sort by values (convert map=>slice, then sort)
 		type kv struct {
 			k  string
-			vs [3]int64 // sum, count, ratio
+			vs [4]int64 // sum, count, ratio, max
 		}
 
 		counters := make([]kv, 0)
 		for k, v := range box.counters {
 			vr := v[0] / v[1]
-			counters = append(counters, kv{k, [3]int64{v[0], v[1], vr}})
+			counters = append(counters, kv{k, [4]int64{v[0], v[1], vr, v[2]}})
 		}
 
 		// select sorder for the slice
 		var sortby func(int, int) bool
 
-		// valid options set = {1,2,3}
-		sortMap := map[int]int{1: 0, 2: 1, 3: 2}
+		// valid options set = {1,2,3,4}
+		sortMap := map[int]int{1: 0, 2: 1, 3: 2, 4: 3}
 		if sortI, validSortI := sortMap[flags.sort]; validSortI {
 			if flags.reverse {
 				sortby = func(i, j int) bool { return counters[i].vs[sortI] > counters[j].vs[sortI] }
@@ -209,8 +209,12 @@ func sumLine(line string, boxes []patBox) (int, error) {
 				return c, err
 			}
 			v0 := box.counters[k]
-			v0[0] += int64(v) * int64(flags.factor)
+			size := int64(v) * int64(flags.factor)
+			v0[0] += size
 			v0[1]++
+			if v0[2] < size {
+				v0[2] = size
+			}
 			box.counters[k] = v0
 			c++
 		}
@@ -266,7 +270,9 @@ func readFlags() flagsSet {
 	flag.BoolVar(&flags.verbose, "verbose", true, "verbose output")
 
 	flag.IntVar(&flags.sort, "s", 1, "= --sort")
-	flag.IntVar(&flags.sort, "sort", 1, "sort by: (1) sum of counters; (2) number of entries; (0) disable")
+	flag.IntVar(&flags.sort, "sort", 1,
+		"sort by: (1) sum of counters; (2) number of entries;"+
+			"(3) ratio sum/number (4) max size; (0) disable")
 
 	flag.BoolVar(&flags.reverse, "r", false, "= --reverse")
 	flag.BoolVar(&flags.reverse, "reverse", false, "reverse sorting")
@@ -346,7 +352,7 @@ func readFlags() flagsSet {
 		flags.reverse = !flags.reverse
 	}
 
-	if flags.sort < 1 || flags.sort > 3 {
+	if flags.sort < 1 || flags.sort > 4 {
 		flags.sort = 0
 	}
 
